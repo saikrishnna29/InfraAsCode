@@ -1,0 +1,61 @@
+---
+- hosts: localhost
+  gather_facts: false
+  connection: local
+  
+  vars_prompt:
+  - name: region
+    prompt: "Enter the region name"
+    private: no
+
+  vars:
+    region_name: "{{ region }}"
+
+  tasks: 
+  - name: Create vpc
+    ec2_vpc_net:
+      name: MyVpcEc2
+      cidr_block: 10.0.0.0/16
+      region: "{{ region_name }}"
+      tags:
+        Name: MyVpcEc2
+        app: ansible
+        env: dev
+      state: present
+    register: MyVpcEc2_vpc
+
+  - name: create subnet
+    ec2_vpc_subnet:
+      region: "{{ region_name }}"
+      vpc_id: "{{ MyVpcEc2_vpc.vpc.id }}"
+      cidr: 10.0.1.0/24
+      map_public: yes
+      tags:
+        Name: MySubnetEc2
+        app: ansible
+        env: dev
+      state: present
+    register: MySubnetEc2_subnet
+
+  - name: create internet gateway
+    ec2_vpc_igw:
+      vpc_id: "{{ MyVpcEc2_vpc.vpc.id }}"
+      region: "{{ region_name }}"
+      state: present
+      tags:
+        Name: MyEc2Igw
+        app: ansible
+        env: dev
+    register: igw
+
+  - name: Route to internet gateway
+    ec2_vpc_route_table:
+      vpc_id: "{{ MyVpcEc2_vpc.vpc.id }}"
+      region: "{{ region_name }}"
+      subnets:
+        - "{{ MySubnetEc2_subnet.subnet.id }}"
+      routes:
+        - dest: 0.0.0.0/0
+          gateway_id: "{{ igw.gateway_id  }}"
+      tags:
+        Name: MyRouteTableEc2
