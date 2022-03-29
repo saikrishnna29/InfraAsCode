@@ -1,0 +1,123 @@
+---
+
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  vars_prompt:
+  - name: keypair
+    prompt: "Enter your key-pair without pem extension"
+    private: no
+  - name: instancetype
+    prompt: "Enter the type of instance"
+    private: no
+  - name: image
+    prompt: "Enter the image id"
+    private: no
+  - name: securitygroup
+    prompt: "Enter the security-group name"
+    private: no
+  - name: count
+    prompt: "Enter the number of ec2-instances you want"
+    private: no
+  - name: region
+    prompt: "Enter the region of your choice"
+    private: no
+  
+  vars:
+    keypair_name: "{{ keypair }}"
+    instancetype_name: "{{ instancetype }}"
+    image_name: "{{ image }}"
+    securitygroup_name: "{{ securitygroup }}" 
+    count_number: "{{ count }}"
+    region_name: "{{ region }}"
+
+  tasks: 
+  - name: Create vpc
+    ec2_vpc_net:
+      name: MyVpcEc2
+      cidr_block: 10.0.0.0/16
+      region: "{{ region_name }}"
+      tags:
+        Name: MyVpcEc2
+        app: ansible
+        env: dev
+      state: present
+    register: MyVpcEc2_vpc
+
+  - name: create subnet
+    ec2_vpc_subnet:
+      region: "{{ region_name }}"
+      vpc_id: "{{ MyVpcEc2_vpc.vpc.id }}"
+      cidr: 10.0.1.0/24
+      map_public: yes
+      tags:
+        Name: MySubnetEc2
+        app: ansible
+        env: dev
+      state: present
+    register: MySubnetEc2_subnet
+
+  - name: create internet gateway
+    ec2_vpc_igw:
+      vpc_id: "{{ MyVpcEc2_vpc.vpc.id }}"
+      region: "{{ region_name }}"
+      state: present
+      tags:
+        Name: MyEc2Igw
+        app: ansible
+        env: dev
+    register: igw
+
+  - name: Route to internet gateway
+    ec2_vpc_route_table:
+      vpc_id: "{{ MyVpcEc2_vpc.vpc.id }}"
+      region: "{{ region_name }}"
+      subnets:
+        - "{{ MySubnetEc2_subnet.subnet.id }}"
+      routes:
+        - dest: 0.0.0.0/0
+          gateway_id: "{{ igw.gateway_id  }}"
+      tags:
+        Name: MyRouteTableEc2
+    
+  - name: Create securitygroup
+    ec2_group:
+      name: "{{ securitygroup_name }}"
+      description: security group for port 22 and 80
+      vpc_id: "{{ MyVpcEc2_vpc.vpc.id }}"
+      region: "{{ region_name }}"
+      tags:
+        Name: "{{ securitygroup_name }}"
+        app: ansible
+        env: dev
+      rules: 
+        - proto: tcp
+          from_port: 22
+          to_port: 22
+          cidr_ip: 0.0.0.0/0
+        - proto: tcp
+          from_port: 80
+          to_port: 80
+          cidr_ip: 0.0.0.0/0
+      rules_egress:
+        - proto: all
+          cidr_ip: 0.0.0.0/0
+    
+  - name: Create ec2 instance
+    ec2:
+      key_name: "{{ keypair_name }}"
+      instance_type: "{{ instancetype_name }}"
+      image: "{{ image_name }}"
+      region: "{{ region_name }}"
+      group: "{{ securitygroup_name }}"
+      count: "{{ count_number }}"
+      vpc_subnet_id: "{{ MySubnetEc2_subnet.subnet.id }}"
+      wait: yes
+      assign_public_ip: yes
+      instance_tags: 
+        Name: MyEC2Instance
+        app: ansible
+        env: dev
+        os: linux
+    register: ec2
